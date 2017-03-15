@@ -45,12 +45,17 @@ int common_process_inargs(int argc, char *argv[],
 			  void (*usage)(const char *))
 {
 	in->devname = NULL;
+	in->file_size = 0LL;
 	in->frame_size = 1000;
 	in->datafile = NULL;
 	in->codefile = NULL;
 	in->k = 10;
 	in->m = 4;
 	in->w = 4;
+	in->nthread = 1;
+	in->verbs = 0;
+	in->sw = 0;
+	in->mlx_lib = 0;
 
 	while (1) {
 		int c, ret;
@@ -91,6 +96,22 @@ int common_process_inargs(int argc, char *argv[],
 		case 'E':
 			ret = asprintf(&in->failed_blocks, optarg);
 			if (ret < 0) {
+				usage(argv[0]);
+				return -EINVAL;
+			}
+			break;
+
+		case 'F':
+			in->file_size = strtoll(optarg, NULL, 0);
+			if (in->file_size < 0) {
+				usage(argv[0]);
+				return -EINVAL;
+			}
+			break;
+
+		case 't':
+			in->nthread = strtol(optarg, NULL, 0);
+			if (in->nthread < 0) {
 				usage(argv[0]);
 				return -EINVAL;
 			}
@@ -148,6 +169,14 @@ int common_process_inargs(int argc, char *argv[],
 			in->sw = 1;
 			break;
 
+		case 'V':
+			in->verbs = 1;
+			break;
+
+		case 'L':
+			in->mlx_lib = 1;
+			break;
+
 		case 'v':
 			verbose = 1;
 			break;
@@ -191,3 +220,94 @@ int get_addr(char *dst, struct sockaddr *addr)
 
 	return ret;
 }
+
+// copied form apue 3e
+// print the real, sys and user time between tmsstart and tmsend
+void pr_times(clock_t real_clock, struct tms *tmsstart, struct tms *tmsend, 
+		double *real, double *sys, double *user)
+{
+	static long	clktck = 0;
+	/* fetch clock ticks per second first time */
+	if (clktck == 0)
+		if ((clktck = sysconf(_SC_CLK_TCK)) < 0)
+			app_error("sysconf error");
+
+	if(real)
+		*real = real_clock / (double) clktck;
+	if(sys)
+		*sys = (tmsend->tms_stime - tmsstart->tms_stime) / (double) clktck;
+	if(user)
+		*user =(tmsend->tms_utime - tmsstart->tms_utime) / (double) clktck;
+}
+
+// posix-style error
+void posix_error(int code, char *msg) 
+{
+	fprintf(stderr, "%s: %s\n", msg, strerror(code));
+	exit(0);
+}
+
+// application error
+void app_error(char *msg)
+{
+	fprintf(stderr, "%s\n", msg);
+	exit(0);
+}
+
+// error handling wrapper for posix times function
+clock_t Times(struct tms *buffer) {
+	clock_t ret = times(buffer);
+	if(ret == -1)
+		posix_error(errno, "times error");
+	return ret;
+}
+
+/************************************************
+ * Wrappers for Pthreads thread control functions
+ * Copied from csapp
+ ************************************************/
+
+void Pthread_create(pthread_t *tidp, pthread_attr_t *attrp, 
+		    void * (*routine)(void *), void *argp) 
+{
+    int rc;
+
+    if ((rc = pthread_create(tidp, attrp, routine, argp)) != 0)
+	posix_error(rc, "Pthread_create error");
+}
+
+void Pthread_cancel(pthread_t tid) {
+    int rc;
+
+    if ((rc = pthread_cancel(tid)) != 0)
+	posix_error(rc, "Pthread_cancel error");
+}
+
+void Pthread_join(pthread_t tid, void **thread_return) {
+    int rc;
+
+    if ((rc = pthread_join(tid, thread_return)) != 0)
+	posix_error(rc, "Pthread_join error");
+}
+
+/* $begin detach */
+void Pthread_detach(pthread_t tid) {
+    int rc;
+
+    if ((rc = pthread_detach(tid)) != 0)
+	posix_error(rc, "Pthread_detach error");
+}
+/* $end detach */
+
+void Pthread_exit(void *retval) {
+    pthread_exit(retval);
+}
+
+pthread_t Pthread_self(void) {
+    return pthread_self();
+}
+ 
+void Pthread_once(pthread_once_t *once_control, void (*init_function)()) {
+    pthread_once(once_control, init_function);
+}
+
