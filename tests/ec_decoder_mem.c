@@ -31,9 +31,9 @@
  */
 
 #include "ec_common.h"
-#include <ecOffload/eco_encoder.h>
+#include <ecOffload/eco_decoder.h>
 
-struct encoder_context {
+struct decoder_context {
 	struct ibv_context	*context;
 	struct ibv_pd		*pd;
 	struct ec_context	*ec_ctx;
@@ -41,13 +41,13 @@ struct encoder_context {
 
 struct thread_arg_t {
 	struct inargs *in;
-	struct encoder_context *ctx;
+	struct decoder_context *ctx;
 };
 
-static struct encoder_context *
+static struct decoder_context *
 init_ctx(struct ibv_device *ib_dev, struct inargs *in)
 {
-	struct encoder_context *ctx;
+	struct decoder_context *ctx;
 
 	ctx = calloc(1, sizeof(*ctx));
 	if (!ctx) {
@@ -69,7 +69,7 @@ init_ctx(struct ibv_device *ib_dev, struct inargs *in)
 	}
 
 	ctx->ec_ctx = alloc_ec_ctx(ctx->pd, in->frame_size,
-			in->k, in->m, in->w, 1, NULL);
+			in->k, in->m, in->w, 1, in->failed_blocks);
 	if (!ctx->ec_ctx) {
 		err_log("Failed to allocate EC context\n");
 		goto dealloc_pd;
@@ -87,7 +87,7 @@ free_ctx:
 	return NULL;
 }
 
-static void close_ctx(struct encoder_context *ctx)
+static void close_ctx(struct decoder_context *ctx)
 {
 	free_ec_ctx(ctx->ec_ctx);
 	ibv_dealloc_pd(ctx->pd);
@@ -108,6 +108,7 @@ static void usage(const char *argv0)
 	printf("  -k, --data_blocks=<blocks>   Number of data blocks\n");
 	printf("  -m, --code_blocks=<blocks>   Number of code blocks\n");
 	printf("  -w, --gf=<gf>                Galois field GF(2^w)\n");
+	printf("  -E, --erasures=<erasures>  Comma separated failed blocks\n");
 	printf("  -F, --file_size=<size>       size of file in bytes\n");
 	printf("  -s, --frame_size=<size>      size of EC frame\n");
 	printf("  -t, --thread_number=<number> number of threads used\n");
@@ -123,6 +124,7 @@ static int process_inargs(int argc, char *argv[], struct inargs *in)
 	int err;
 	struct option long_options[] = {
 		{ .name = "ib-dev",        .has_arg = 1, .val = 'i' },
+		{ .name = "erasures",      .has_arg = 1, .val = 'E' },
 		{ .name = "file_size",     .has_arg = 1, .val = 'F' },
 		{ .name = "frame_size",    .has_arg = 1, .val = 's' },
 		{ .name = "data_blocks",   .has_arg = 1, .val = 'k' },
@@ -137,7 +139,7 @@ static int process_inargs(int argc, char *argv[], struct inargs *in)
 		{ .name = 0, .has_arg = 0, .val = 0 }
 	};
 
-	err = common_process_inargs(argc, argv, "i:F:s:k:m:w:t:VShdv",
+	err = common_process_inargs(argc, argv, "i:E:F:s:k:m:w:t:VShdv",
 			long_options, in, usage);
 	if (err)
 		return err;
@@ -145,7 +147,21 @@ static int process_inargs(int argc, char *argv[], struct inargs *in)
 	return 0;
 }
 
-/* the total number of encode operations needs to be done
+static void zero_erasures(struct ec_context *ctx, void *data_buf, void *code_buf)
+{
+	int i;
+
+	for (i = 0; i < ctx->attr.k; i++)
+		if (ctx->int_erasures[i])
+			memset(data_buf + i * ctx->block_size, 0, ctx->block_size);
+
+	for (i = 0; i < ctx->attr.m; i++) {
+		if (ctx->int_erasures[i + ctx->attr.k])
+			memset(code_buf + i * ctx->block_size, 0, ctx->block_size);
+	}
+}
+
+/* the total number of decode operations needs to be done
  * all threads share this counter
  * each time, each thread gets some work and decreases this counter
  * If the value of the counter is below zero,
@@ -153,7 +169,7 @@ static int process_inargs(int argc, char *argv[], struct inargs *in)
  */
 volatile long long iterations = 0;
 
-static int encode_benchmark(struct encoder_context *ctx, 
+static int decode_benchmark(struct decoder_context *ctx, 
 		struct inargs *in)
 {
 	struct ec_context *ec_ctx = ctx->ec_ctx;
@@ -174,10 +190,11 @@ static int encode_benchmark(struct encoder_context *ctx,
 		// uses verbs API
 		if(in->verbs) {
 			for(i = 0; i < nops; i++) {
-				memset(ec_ctx->code.buf, 0, ec_ctx->block_size * ec_ctx->attr.m);
-				err = ibv_exp_ec_encode_sync(ec_ctx->calc, &ec_ctx->mem);
+				zero_erasures(ec_ctx, ec_ctx->data.buf, ec_ctx->code.buf);
+				err = ibv_exp_ec_decode_sync(ec_ctx->calc, &ec_ctx->mem,
+						ec_ctx->u8_erasures, ec_ctx->de_mat);
 				if (err) {
-					err_log("Failed ibv_exp_ec_encode (%d)\n", err);
+					fprintf(stderr, "Failed ibv_exp_ec_decode (%d)\n", err);
 					return err;
 				}
 			}
@@ -202,7 +219,7 @@ static int encode_benchmark(struct encoder_context *ctx,
 	return 0;
 }
 
-static void set_buffers(struct encoder_context *ctx)
+static void set_buffers(struct decoder_context *ctx)
 {
 	struct ec_context *ec_ctx = ctx->ec_ctx;
 	int i;
@@ -244,14 +261,11 @@ int main(int argc, char *argv[])
 	// the real frame_size we use after aligning block_size to 64 bytes
 	int frame_size = block_size * in.k;
 	iterations = in.file_size / frame_size;
-
+	
 	dbg_log("iterations: %lld\nblock_size: %d\nframe_size: %d\n", 
 			iterations, block_size, frame_size);
 
-	/* generate the data blocks to encode
-	 * we should generate data blocks in the main thread
-	 * so that the long running time of rand will not be accounted
-	 */
+	// generate the data blocks to decode
 	uint8_t *data = (uint8_t *)malloc(sizeof(uint8_t) * frame_size);
 	if(!data) {
 		err_log("failed to allocate data blocks\n");
@@ -277,7 +291,7 @@ int main(int argc, char *argv[])
 		return -ENOMEM;
 	}
 
-	struct encoder_context *ctx = NULL;
+	struct decoder_context *ctx = NULL;
 	for (i = 0; i < nthread; i++) {
 		targ[i].in = &in;
 		ctx = init_ctx(device, &in);
@@ -286,6 +300,22 @@ int main(int argc, char *argv[])
 		targ[i].ctx = ctx;
 		set_buffers(ctx);
 		memcpy(ctx->ec_ctx->data.buf, data, frame_size);
+	}
+
+	// populate the code blocks of the first ctx
+	struct ec_context *ec_ctx = targ[0].ctx->ec_ctx;
+	int code_size = block_size * in.m;
+	memset(ec_ctx->code.buf, 0, code_size);
+	err = sw_ec_encode(ec_ctx);
+	if (err) {
+		err_log("Failed sw_ec_encode (%d)\n", err);
+		return err;
+	}
+	
+	// populate the code blocks of other ctx
+	for (i = 1; i < nthread; i++) {
+		ec_ctx = targ[i].ctx->ec_ctx;
+		memcpy(ec_ctx->code.buf, targ[0].ctx->ec_ctx->code.buf, code_size);
 	}
 
 	// timing
@@ -323,7 +353,7 @@ void *thread(void *vargp)
 	int err;
 	struct thread_arg_t *arg = (struct thread_arg_t *)vargp;
 	// encode data
-	err = encode_benchmark(arg->ctx, arg->in);
+	err = decode_benchmark(arg->ctx, arg->in);
 	if (err)
 		err_log("failed to encode\n");
 

@@ -8,9 +8,9 @@ LDFLAGS = -libverbs -lgf_complete -lJerasure -lpthread -lrdmacm -lecOffload
 
 
 OBJECTS_LAT = ec_encoder.o ec_decoder.o ec_common.o common.o ec_capability_test.o \
-			  ec_encoder_mem.o
+			  ec_encoder_mem.o ec_decoder_mem.o
 TARGETS = ibv_ec_capability_test ibv_ec_encoder ibv_ec_decoder \
-		  ibv_ec_encoder_mem
+		  ibv_ec_encoder_mem ibv_ec_decoder_mem
 
 all: $(TARGETS)
 
@@ -25,6 +25,9 @@ ibv_ec_encoder_mem: ec_encoder_mem.o ec_common.o common.o
 
 ibv_ec_decoder: ec_decoder.o ec_common.o common.o
 	$(CC) $(CFLAGS) $(LDFLAGS) ec_decoder.o ec_common.o common.o -o $@
+
+ibv_ec_decoder_mem: ec_decoder_mem.o ec_common.o common.o
+	$(CC) $(CFLAGS) $(LDFLAGS) ec_decoder_mem.o ec_common.o common.o -o $@
 
 install:
 	install -d -m 755 $(PREFIX)/$(sbindir)

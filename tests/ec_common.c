@@ -100,6 +100,17 @@ int alloc_encode_matrix(struct ec_context *ctx)
 	return 0;
 }
 
+/* failed_blocks is comma seperated string
+ * if there is an erasure in this block position
+ * then we put a '1' there
+ * else we can put anything that does not begin with '1'
+ * note that: if we put nothing between two commas
+ * that specfic position is ignored
+ * For example: 1,,,,,,,,1, == 1,1
+ * since we use ',' as the delimiter,
+ * and strtok will directly go to the next token.
+ * So the empty ",," will be ignored.
+ */
 int extract_erasures(char *failed_blocks, struct ec_context *ctx)
 {
 	char *pt;
@@ -111,11 +122,11 @@ int extract_erasures(char *failed_blocks, struct ec_context *ctx)
 		return -ENOMEM;
 	}
 
-        ctx->u8_erasures = calloc(ctx->attr.k + ctx->attr.m, sizeof(uint8_t));
-        if (!ctx->u8_erasures) {
-                err_log("failed to allocated u8_erasures buffer\n");
-                return -ENOMEM;
-        }
+	ctx->u8_erasures = calloc(ctx->attr.k + ctx->attr.m, sizeof(uint8_t));
+	if (!ctx->u8_erasures) {
+		err_log("failed to allocated u8_erasures buffer\n");
+		return -ENOMEM;
+	}
 
 	ctx->survived_arr = calloc(ctx->attr.k + ctx->attr.m, sizeof(int));
 	if (!ctx->survived_arr) {
@@ -133,6 +144,9 @@ int extract_erasures(char *failed_blocks, struct ec_context *ctx)
 		if (pt[0] == '1') {
 			ctx->int_erasures[i] = 1;
 			ctx->u8_erasures[i] = 1;
+			/* the number of erasures should not exceed m
+			 * or we can not recover it
+			 */
 			if (++tot > ctx->attr.m) {
 				err_log("too much erasures %d\n", tot);
 				goto err_survived;
