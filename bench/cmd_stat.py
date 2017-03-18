@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import os, sys
+
 # on my machine clktck = 100
 Hertz = 100
 
@@ -24,7 +26,10 @@ def meminfo():
     return meminfo
 
 def get_pid_stat(pid):
-    with open('/proc/' + str(pid) + '/stat') as f:
+    """
+    Return the content of /proc/$pid/stat as a list.
+    """
+    with open("/proc/" + str(pid) + "/stat") as f:
         line = f.read()
         l = line.split(' ')
         return l
@@ -72,3 +77,55 @@ def get_pid_avg_cpu_usage(pid):
 	cpu_usage = 100 * ((total_time / Hertz) / seconds)
 
 	return cpu_usage
+
+def get_command_execution_result(cmd):
+    """
+    Get the execution result of a shell command.
+    Including stdout, stderr, exit status, exit_signal and average_cpu_usage.
+    The returned result is a json.
+    """
+    # file descriptors r, w for reading and writing
+    out_r, out_w = os.pipe() 
+    err_r, err_w = os.pipe() 
+    pid = os.fork()
+    if pid:
+        # This is the parent process 
+        os.close(out_w)
+        os.close(err_w)
+        out_r = os.fdopen(out_r)
+        err_r = os.fdopen(err_r)
+
+        # collect child stdout and stderr
+        stdout = out_r.read()
+        stderr = err_r.read()
+
+        # we should not do this after os.wait
+        # since after the child is waited and reaped
+        # the corresponding status file "/proc/pid/stat" may not exist
+        # in that case, we will get an file not exist error
+        avg_cpu_usage = get_pid_avg_cpu_usage(pid)
+
+        # get the exit status of child process
+        status = os.wait()
+        ret = {
+                "status": status,
+                "stdout": stdout,
+                "stderr": stderr,
+                "avg_cpu_usage": avg_cpu_usage
+                }
+        return ret
+    else:
+        # This is the child process
+        os.close(out_r)
+        os.close(err_r)
+
+        # redirect stdout and stderr
+        os.dup2(out_w, sys.stdout.fileno())
+        os.dup2(err_w, sys.stderr.fileno())
+
+        l = cmd.split()
+        # l[0] is the path of the executable
+        os.execv(l[0], l)
+
+if __name__=='__main__':
+    print get_command_execution_result("/usr/bin/python test.py 1000000")
