@@ -20,7 +20,7 @@ def run_test(program, file, size, frame_size, api, api_name):
     print api_name, ":"
     with open(file, "w") as f:
         for i in range(1, 30):
-            cmd = "%s%s -i mlx5_0 -F %d -s %d -t %d -%s" % (tests_dir, program,
+            cmd = "%s%s -i mlx5_0 -F %d -s %d -k 10 -m 4 -w 8 -t %d -%s" % (tests_dir, program,
                     size, frame_size, i, api)
             result = get_command_execution_result(cmd)
 
@@ -36,18 +36,9 @@ if __name__ == "__main__":
 	subprocess.check_output("cd %s; make" % tests_dir, shell=True)
     # use verbs api, file size = 40GB
     # use up to 30 threads, not numa binded, not cpu binded
-	run_test("ibv_ec_encoder_mem", "verbs.data", 42949672960, 41943040, "V", "verbs")
+    # best block size = 256KB
+	run_test("ibv_ec_encoder_verbs", "verbs.data", 42949672960, 2621440, "V", "verbs")
 
-    # Use sw Jerasure api, file size = 400MB
-    # We should use small block size, such as 128bytes.
-    # If we use large block size, such as 4MB
-    # then, one thread will fetch all the work in one batch(4MB * 10 * 20).
-    # where 20 is the batch size
-    # Then other threads have no work to do and they will simply exit.
-    # In this case, our multi-threading process becomes single threaded.
-    # 
-    # Our previous test shows that the running time of Jerasure library 
-    # is insensitive to block size.
-    # So we can make block size smaller,
-    # and there will be enough work for all threads.
-	run_test("ibv_ec_encoder_mem", "sw.data", 419430400, 1280, "S", "sw")
+    # Use sw Jerasure api, file size = 40GB
+    # best block size = 16KB
+	run_test("ibv_ec_encoder_sw", "sw.data", 42949672960, 163840, "S", "sw")

@@ -24,7 +24,7 @@ def run_test(program, file, size, api, api_name):
 		for i in range(1, 19):
 			# block size ranges from 64 bytes to 8MB
 			frame_size = block_size * k
-			cmd = "%s%s -i mlx5_0 -F %d -s %d -t 1 -%s" % (tests_dir, program,
+			cmd = "%s%s -i mlx5_0 -F %d -s %d -k 10 -m 4 -w 8 -t 1 -%s" % (tests_dir, program,
 					size, frame_size, api)
 			output = subprocess.check_output(cmd, shell=True)
 			output = "%d\t" % block_size + output
@@ -37,6 +37,9 @@ if __name__ == "__main__":
 	# make sure we are using the latest version of ibv_ec_encoder_mem
 	subprocess.check_output("cd %s; make" % tests_dir, shell=True)
 	# use verbs api, file size = 1GB
+    # experiment show that best block size is 262144 bytes = 256KB
 	run_test("ibv_ec_encoder_mem", "verbs.data", 1073741824, "V", "verbs")
-	# Use sw Jerasure api, file size = 80MB
-	run_test("ibv_ec_encoder_mem", "sw.data", 83886080, "S", "sw")
+
+	# Use sw Jerasure api, file size = 1GB
+    # experiment show that best block size is 16384 bytes = 16KB
+	run_test("ibv_ec_encoder_mem", "sw.data", 1073741824, "S", "sw")

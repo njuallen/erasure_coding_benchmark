@@ -46,6 +46,9 @@ def get_machine_up_time():
 def get_pid_avg_cpu_usage(pid):
 	"""
 	Get the average cpu usage of a process in percents.
+    Since we take child process's CPU time into account,
+    this works for multi-threaded and multi-process applications,
+    as long as you pass in the pid of main thread or parent process.
 	To understand the simple equations, please read the links below:
 	http://stackoverflow.com/questions/16726779/how-do-i-get-the-total-cpu-usage-of-an-application-from-proc-pid-stat
 	http://unix.stackexchange.com/a/58541

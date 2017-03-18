@@ -183,17 +183,17 @@ static int encode_benchmark(struct encoder_context *ctx,
 			}
 		}
 
-		// uses Jerasure library
-		if(in->sw) {
-			for(i = 0; i < nops; i++) {
-				memset(ec_ctx->code.buf, 0, ec_ctx->block_size * ec_ctx->attr.m);
-				err = sw_ec_encode(ec_ctx);
-				if (err) {
-					err_log("Failed sw_ec_encode (%d)\n", err);
-					return err;
-				}
-			}
-		}
+		/* the original sw_ec_encode does not make use Jerasure library
+         * it's quite slow, not a good comparison, it just shows that ECO is correct
+         * Jerasure library is good comparison in encoding performance
+         */
+        if(in->sw) {
+            for(i = 0; i < nops; i++) {
+                memset(ec_ctx->code.buf, 0, ec_ctx->block_size * ec_ctx->attr.m);
+                jerasure_matrix_encode(ec_ctx->attr.k, ec_ctx->attr.m, ec_ctx->attr.w, 
+                        ec_ctx->encode_matrix, (char **)ec_ctx->data_arr, (char **)ec_ctx->code_arr, ec_ctx->block_size);
+            }
+        }
 
 		/* mellanox said that this library is not thread safe, 
 		 * so we can not use it here

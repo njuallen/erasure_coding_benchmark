@@ -106,22 +106,4 @@ int common_process_inargs(int argc, char *argv[],
 
 int get_addr(char *dst, struct sockaddr *addr);
 
-void pr_times(clock_t real_clock, struct tms *tmsstart, struct tms *tmsend, 
-		double *real, double *sys, double *user);
-
-void posix_error(int code, char *msg);
-void app_error(char *msg);
-
-/* Pthreads thread control wrappers */
-void Pthread_create(pthread_t *tidp, pthread_attr_t *attrp, 
-		    void * (*routine)(void *), void *argp);
-void Pthread_join(pthread_t tid, void **thread_return);
-void Pthread_cancel(pthread_t tid);
-void Pthread_detach(pthread_t tid);
-void Pthread_exit(void *retval);
-pthread_t Pthread_self(void);
-void Pthread_once(pthread_once_t *once_control, void (*init_function)());
-
-// error handling wrapper for posix times function
-clock_t Times(struct tms *buffer);
 #endif /* COMMON_H */
