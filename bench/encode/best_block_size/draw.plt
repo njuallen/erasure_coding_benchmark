@@ -1,8 +1,8 @@
-set xlabel "Block size/Bytes"
+set xlabel "Block size(Bytes)"
 set xtics font ", 10"
 set logscale x 2
 set format x "%.0f"
-set ylabel "Time/s"
+set ylabel "Time(s)"
 set title "Encode 1GB data"
 set grid
 set term jpeg

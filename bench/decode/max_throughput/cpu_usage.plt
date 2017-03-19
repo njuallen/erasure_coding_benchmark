@@ -1,5 +1,5 @@
 set xlabel "Number of threads/processes"
-set ylabel "average CPU usage/%"
+set ylabel "average CPU usage(%)"
 set ytics 200
 set mytics 2
 set title "Decode 40GB data"
