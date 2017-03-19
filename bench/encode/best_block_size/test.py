@@ -38,8 +38,8 @@ if __name__ == "__main__":
 	subprocess.check_output("cd %s; make" % tests_dir, shell=True)
 	# use verbs api, file size = 1GB
     # experiment show that best block size is 262144 bytes = 256KB
-	run_test("ibv_ec_encoder_mem", "verbs.data", 1073741824, "V", "verbs")
+	run_test("ibv_ec_encoder_verbs", "verbs.data", 1073741824, "V", "verbs")
 
 	# Use sw Jerasure api, file size = 1GB
     # experiment show that best block size is 16384 bytes = 16KB
-	run_test("ibv_ec_encoder_mem", "sw.data", 1073741824, "S", "sw")
+	run_test("ibv_ec_encoder_sw", "sw.data", 1073741824, "S", "sw")
