@@ -31,7 +31,6 @@
  */
 
 #include "ec_common.h"
-#include <ecOffload/eco_encoder.h>
 
 struct encoder_context {
 	struct ibv_context	*context;

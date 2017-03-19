@@ -31,7 +31,6 @@
  */
 
 #include "ec_common.h"
-#include <ecOffload/eco_encoder.h>
 
 static void usage(const char *argv0)
 {
