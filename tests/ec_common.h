@@ -34,6 +34,7 @@
 #define EC_COMMON_H
 
 #include "common.h"
+#include "csapp.h"
 #include <infiniband/verbs_exp.h>
 #include <jerasure.h>
 #include <jerasure/reed_sol.h>

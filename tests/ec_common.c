@@ -492,6 +492,7 @@ int sw_ec_encode(struct ec_context *ctx)
 		offset = i % block_size;
 
 		for (j = 0; j < m; j++)
+            // in GF field, XOR is equivalent to + ????
 			code[block_size*j + offset] ^=
 			galois_w4_mult(data[i], matrix[index*m+j]);
 	}

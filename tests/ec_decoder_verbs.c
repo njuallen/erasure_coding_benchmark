@@ -201,17 +201,17 @@ static int decode_benchmark(struct decoder_context *ctx,
 		}
 
 		// uses Jerasure library
-		if(in->sw) {
-			for(i = 0; i < nops; i++) {
-				memset(ec_ctx->code.buf, 0, ec_ctx->block_size * ec_ctx->attr.m);
-				err = sw_ec_encode(ec_ctx);
-				if (err) {
-					err_log("Failed sw_ec_encode (%d)\n", err);
-					return err;
-				}
-			}
-		}
-
+        if(in->sw) {
+            for(i = 0; i < nops; i++) {
+                memset(ec_ctx->code.buf, 0, ec_ctx->block_size * ec_ctx->attr.m);
+                /* I should look into the format of erasure array
+                 * we should not pass int_erasures here
+                 */
+                jerasure_matrix_decode(ec_ctx->attr.k, ec_ctx->attr.m, ec_ctx->attr.w, 
+                        ec_ctx->encode_matrix, 1, ec_ctx->int_erasures, (char **)ec_ctx->data_arr, 
+                        (char **)ec_ctx->code_arr, ec_ctx->block_size);
+            }
+        }
 		/* mellanox said that this library is not thread safe, 
 		 * so we can not use it here
 		 */
