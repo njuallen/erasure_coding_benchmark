@@ -301,7 +301,7 @@ void *Calloc(size_t nmemb, size_t size)
     void *p;
 
     if ((p = calloc(nmemb, size)) == NULL)
-	unix_error("Calloc error");
+        unix_error("Calloc error");
     return p;
 }
 
@@ -511,19 +511,24 @@ void Pthread_once(pthread_once_t *once_control, void (*init_function)()) {
 void Sem_init(sem_t *sem, int pshared, unsigned int value) 
 {
     if (sem_init(sem, pshared, value) < 0)
-	unix_error("Sem_init error");
+        unix_error("Sem_init error");
 }
 
 void P(sem_t *sem) 
 {
     if (sem_wait(sem) < 0)
-	unix_error("P error");
+        unix_error("P error");
 }
 
 void V(sem_t *sem) 
 {
     if (sem_post(sem) < 0)
-	unix_error("V error");
+        unix_error("V error");
+}
+
+void Sem_destroy(sem_t *sem) {
+    if (sem_destroy(sem) < 0)
+        unix_error("Sem_destroy error");
 }
 
 /*******************************
@@ -556,6 +561,39 @@ void Pthread_mutex_destroy(pthread_mutex_t *mutex)
 	int rc;
 	if ((rc = pthread_mutex_destroy(mutex)) != 0)
 		posix_error(rc, "Pthread_mutex_destroy error");
+}
+
+/* POSIX condition variable wrappers */
+void Pthread_cond_init(pthread_cond_t *cond,
+        const pthread_condattr_t *attr) {
+	int rc;
+	if ((rc = pthread_cond_init(cond, attr)) != 0)
+		posix_error(rc, "Pthread_cond_init error");
+}
+
+void Pthread_cond_destroy(pthread_cond_t *cond) {
+    int rc;
+    if ((rc = pthread_cond_destroy(cond)) != 0)
+        posix_error(rc, "Pthread_cond_destroy error");
+}
+
+void Pthread_cond_broadcast(pthread_cond_t *cond) {
+    int rc;
+    if ((rc = pthread_cond_broadcast(cond)) != 0)
+        posix_error(rc, "Pthread_cond_broadcast error");
+}
+
+void Pthread_cond_signal(pthread_cond_t *cond) {
+    int rc;
+    if ((rc = pthread_cond_signal(cond)) != 0)
+        posix_error(rc, "Pthread_cond_signal error");
+}
+
+void Pthread_cond_wait(pthread_cond_t *cond, 
+        pthread_mutex_t *mutex) {
+    int rc;
+    if ((rc = pthread_cond_wait(cond, mutex)) != 0)
+        posix_error(rc, "Pthread_cond_wait error");
 }
 
 /*********************************************************************

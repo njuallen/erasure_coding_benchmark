@@ -43,58 +43,61 @@ struct thread_arg_t {
 	struct encoder_context *ctx;
 };
 
+// set maximum inflight calculations to 1
+int max_inflight = 1;
+
 static struct encoder_context *
 init_ctx(struct ibv_device *ib_dev, struct inargs *in)
 {
-	struct encoder_context *ctx;
+    struct encoder_context *ctx;
 
-	ctx = calloc(1, sizeof(*ctx));
-	if (!ctx) {
-		err_log("Failed to allocate encoder context\n");
-		return NULL;
-	}
+    ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        err_log("Failed to allocate encoder context\n");
+        return NULL;
+    }
 
-	ctx->context = ibv_open_device(ib_dev);
-	if (!ctx->context) {
-		err_log("Couldn't get context for %s\n",
-				ibv_get_device_name(ib_dev));
-		goto free_ctx;
-	}
+    ctx->context = ibv_open_device(ib_dev);
+    if (!ctx->context) {
+        err_log("Couldn't get context for %s\n",
+                ibv_get_device_name(ib_dev));
+        goto free_ctx;
+    }
 
-	ctx->pd = ibv_alloc_pd(ctx->context);
-	if (!ctx->pd) {
-		err_log("Failed to allocate PD\n");
-		goto close_device;
-	}
+    ctx->pd = ibv_alloc_pd(ctx->context);
+    if (!ctx->pd) {
+        err_log("Failed to allocate PD\n");
+        goto close_device;
+    }
 
-	ctx->ec_ctx = alloc_ec_ctx(ctx->pd, in->frame_size,
-			in->k, in->m, in->w, 1, NULL);
-	if (!ctx->ec_ctx) {
-		err_log("Failed to allocate EC context\n");
-		goto dealloc_pd;
-	}
+    ctx->ec_ctx = alloc_ec_ctx(ctx->pd, in->frame_size,
+            in->k, in->m, in->w, max_inflight, NULL);
+    if (!ctx->ec_ctx) {
+        err_log("Failed to allocate EC context\n");
+        goto dealloc_pd;
+    }
 
-	return ctx;
+    return ctx;
 
 dealloc_pd:
-	ibv_dealloc_pd(ctx->pd);
+    ibv_dealloc_pd(ctx->pd);
 close_device:
-	ibv_close_device(ctx->context);
+    ibv_close_device(ctx->context);
 free_ctx:
-	free(ctx);
+    free(ctx);
 
-	return NULL;
+    return NULL;
 }
 
 static void close_ctx(struct encoder_context *ctx)
 {
-	free_ec_ctx(ctx->ec_ctx);
-	ibv_dealloc_pd(ctx->pd);
+    free_ec_ctx(ctx->ec_ctx);
+    ibv_dealloc_pd(ctx->pd);
 
-	if (ibv_close_device(ctx->context))
-		err_log("Couldn't release context\n");
+    if (ibv_close_device(ctx->context))
+        err_log("Couldn't release context\n");
 
-	free(ctx);
+    free(ctx);
 }
 
 static void usage(const char *argv0)
@@ -110,8 +113,6 @@ static void usage(const char *argv0)
 	printf("  -F, --file_size=<size>       size of file in bytes\n");
 	printf("  -s, --frame_size=<size>      size of EC frame\n");
 	printf("  -t, --thread_number=<number> number of threads used\n");
-	printf("  -V, --verbs                  use verbs api\n");
-	printf("  -S, --software_ec            use software EC(Jerasure library)\n");
 	printf("  -d, --debug                  print debug messages\n");
 	printf("  -v, --verbose                add verbosity\n");
 	printf("  -h, --help                   display this output\n");
@@ -119,29 +120,28 @@ static void usage(const char *argv0)
 
 static int process_inargs(int argc, char *argv[], struct inargs *in)
 {
-	int err;
-	struct option long_options[] = {
-		{ .name = "ib-dev",        .has_arg = 1, .val = 'i' },
-		{ .name = "file_size",     .has_arg = 1, .val = 'F' },
-		{ .name = "frame_size",    .has_arg = 1, .val = 's' },
-		{ .name = "data_blocks",   .has_arg = 1, .val = 'k' },
-		{ .name = "code_blocks",   .has_arg = 1, .val = 'm' },
-		{ .name = "gf",            .has_arg = 1, .val = 'w' },
-		{ .name = "thread_number", .has_arg = 1, .val = 't' },
-		{ .name = "verbs",         .has_arg = 0, .val = 'V' },
-		{ .name = "sw",            .has_arg = 0, .val = 'S' },
-		{ .name = "debug",         .has_arg = 0, .val = 'd' },
-		{ .name = "verbose",       .has_arg = 0, .val = 'v' },
-		{ .name = "help",          .has_arg = 0, .val = 'h' },
-		{ .name = 0, .has_arg = 0, .val = 0 }
-	};
+    int err;
+    struct option long_options[] = {
+        { .name = "ib-dev",        .has_arg = 1, .val = 'i' },
+        { .name = "file_size",     .has_arg = 1, .val = 'F' },
+        { .name = "frame_size",    .has_arg = 1, .val = 's' },
+        { .name = "data_blocks",   .has_arg = 1, .val = 'k' },
+        { .name = "code_blocks",   .has_arg = 1, .val = 'm' },
+        { .name = "gf",            .has_arg = 1, .val = 'w' },
+        { .name = "thread_number", .has_arg = 1, .val = 't' },
+        { .name = "max_inflight",  .has_arg = 1, .val = optval_max_inflight_calcs },
+        { .name = "debug",         .has_arg = 0, .val = 'd' },
+        { .name = "verbose",       .has_arg = 0, .val = 'v' },
+        { .name = "help",          .has_arg = 0, .val = 'h' },
+        { .name = 0, .has_arg = 0, .val = 0 }
+    };
 
-	err = common_process_inargs(argc, argv, "i:F:s:k:m:w:t:VShdv",
-			long_options, in, usage);
-	if (err)
-		return err;
+    err = common_process_inargs(argc, argv, "i:F:s:k:m:w:t:hdv",
+            long_options, in, usage);
+    if (err)
+        return err;
 
-	return 0;
+    return 0;
 }
 
 /* the total number of encode operations needs to be done
@@ -152,76 +152,34 @@ static int process_inargs(int argc, char *argv[], struct inargs *in)
  */
 volatile long long iterations = 0;
 
-static int encode_benchmark(struct encoder_context *ctx, 
-		struct inargs *in)
-{
-	struct ec_context *ec_ctx = ctx->ec_ctx;
-	int i;
-	int err;
+static int encode_benchmark(struct encoder_context *ctx) {
+    struct ec_context *ec_ctx = ctx->ec_ctx;
+    int i;
+    int err;
 
-	while(1) {
-		long long batch = 20;
-		// use batching to avoid much contention
-		long long iter = __sync_fetch_and_sub(&iterations, batch);
-		// finished
-		if(iter <= 0)
-			break;
+    while(1) {
+        long long batch = 20;
+        // use batching to avoid much contention
+        long long iter = __sync_fetch_and_sub(&iterations, batch);
+        // finished
+        if(iter <= 0)
+            break;
 
-		// the number of operations to do this time
-		int nops = (iter < batch) ? iter : batch;
+        // the number of operations to do this time
+        int nops = (iter < batch) ? iter : batch;
 
-		// uses verbs API
-		if(in->verbs) {
-			for(i = 0; i < nops; i++) {
-				memset(ec_ctx->code.buf, 0, ec_ctx->block_size * ec_ctx->attr.m);
-				err = ibv_exp_ec_encode_sync(ec_ctx->calc, &ec_ctx->mem);
-				if (err) {
-					err_log("Failed ibv_exp_ec_encode (%d)\n", err);
-					return err;
-				}
-			}
-		}
-
-		/* the original sw_ec_encode does not make use Jerasure library
-         * it's quite slow, not a good comparison, it just shows that ECO is correct
-         * Jerasure library is good comparison in encoding performance
-         */
-        if(in->sw) {
-            for(i = 0; i < nops; i++) {
-                memset(ec_ctx->code.buf, 0, ec_ctx->block_size * ec_ctx->attr.m);
-                jerasure_matrix_encode(ec_ctx->attr.k, ec_ctx->attr.m, ec_ctx->attr.w, 
-                        ec_ctx->encode_matrix, (char **)ec_ctx->data_arr, (char **)ec_ctx->code_arr, ec_ctx->block_size);
+        // uses sync verbs API
+        for(i = 0; i < nops; i++) {
+            memset(ec_ctx->buf[0].code.buf, 0, ec_ctx->block_size * ec_ctx->attr.m);
+            err = ibv_exp_ec_encode_sync(ec_ctx->calc, &ec_ctx->buf[0].mem);
+            if (err) {
+                err_log("Failed ibv_exp_ec_encode (%d)\n", err);
+                return err;
             }
         }
-
-		/* mellanox said that this library is not thread safe, 
-		 * so we can not use it here
-		 */
-	}
-	return 0;
+    }
+    return 0;
 }
-
-static void set_buffers(struct encoder_context *ctx)
-{
-	struct ec_context *ec_ctx = ctx->ec_ctx;
-	int i;
-
-	ec_ctx->data_arr = calloc(ec_ctx->attr.k, sizeof(*ec_ctx->data_arr));
-	ec_ctx->code_arr = calloc(ec_ctx->attr.m, sizeof(*ec_ctx->code_arr));
-
-	/* data.buf is already allocated and has been memory registered
-	 * here we only let pointers in data_arr point to the correct location
-	 * data_arr pointers works just like sge
-	 * but sge is for verbs api usage and data_arr pointers is for our own usage
-	 */
-	for (i = 0; i < ec_ctx->attr.k ; i++) {
-		ec_ctx->data_arr[i] = ec_ctx->data.buf + i * ec_ctx->block_size;
-	}
-	for (i = 0; i < ec_ctx->attr.m ; i++) {
-		ec_ctx->code_arr[i] = ec_ctx->code.buf + i * ec_ctx->block_size;
-	}
-}
-
 
 void *thread(void *vargp);
 
@@ -277,15 +235,16 @@ int main(int argc, char *argv[])
 	}
 
 	struct encoder_context *ctx = NULL;
-	for (i = 0; i < nthread; i++) {
-		targ[i].in = &in;
-		ctx = init_ctx(device, &in);
-		if (!ctx)
-			return -ENOMEM;
-		targ[i].ctx = ctx;
-		set_buffers(ctx);
-		memcpy(ctx->ec_ctx->data.buf, data, frame_size);
-	}
+    for (i = 0; i < nthread; i++) {
+        targ[i].in = &in;
+        ctx = init_ctx(device, &in);
+        if (!ctx)
+            return -ENOMEM;
+        targ[i].ctx = ctx;
+        int j;
+        for(j = 0; j < max_inflight; j++) 
+            memcpy(ctx->ec_ctx->buf[j].data.buf, data, frame_size);
+    }
 
 	// timing
 	struct tms	tmsstart, tmsend;
@@ -307,8 +266,6 @@ int main(int argc, char *argv[])
 	// clean up
 	for (i = 0; i < nthread; i++) {
 		ctx = targ[i].ctx;
-		free(ctx->ec_ctx->data_arr);
-		free(ctx->ec_ctx->code_arr);
 		close_ctx(ctx);
 	}
 	free(tid);
@@ -322,7 +279,7 @@ void *thread(void *vargp)
 	int err;
 	struct thread_arg_t *arg = (struct thread_arg_t *)vargp;
 	// encode data
-	err = encode_benchmark(arg->ctx, arg->in);
+	err = encode_benchmark(arg->ctx);
 	if (err)
 		err_log("failed to encode\n");
 

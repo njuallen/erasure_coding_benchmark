@@ -249,96 +249,98 @@ err_demat:
 	return err;
 }
 
-static void free_ec_mrs(struct ec_context *ctx)
-{
-	ibv_dereg_mr(ctx->data.mr);
-	ibv_dereg_mr(ctx->code.mr);
-	free(ctx->data.buf);
-	free(ctx->code.buf);
+static void free_ec_mrs(struct ec_context *ctx) {
+    int i;
+    int max_inflight = ctx->attr.max_inflight_calcs;
+    struct ec_mem *buf = ctx->buf;
+    for(i = 0; i < max_inflight; i++) {
+        ibv_dereg_mr(buf[i].data.mr);
+        ibv_dereg_mr(buf[i].code.mr);
+        free(buf[i].data.buf);
+        free(buf[i].code.buf);
+    }
 }
 
-static int alloc_ec_mrs(struct ec_context *ctx)
-{
-	int dsize, csize, i;
+static int alloc_ec_mrs(struct ec_context *ctx) {
+    int dsize, csize, i, j;
 
-	dsize = ctx->block_size * ctx->attr.k;
-	csize = ctx->block_size * ctx->attr.m;
-	info_log("data_size=%d, code_size=%d block_size=%d\n",
-		dsize, csize, ctx->block_size);
+    int max_inflight = ctx->attr.max_inflight_calcs;
+    ctx->buf = Calloc(max_inflight, sizeof(struct ec_mem));
 
-	ctx->data.buf = calloc(1, dsize);
-	if (!ctx->data.buf) {
-		err_log("Failed to allocate data buffer\n");
-		return -ENOMEM;
-	}
+    struct ec_mem *buf = ctx->buf;
 
-	/* Enable local write access
-	 * I think these access rights apply to NICs not to CPU
-	 * since we allocated these buffer
-	 * our code can always access it
-	 * But we need to tell the HW that our local NIC can access it
-	 */
-	ctx->data.mr = ibv_reg_mr(ctx->pd, ctx->data.buf,
-				  dsize, IBV_ACCESS_LOCAL_WRITE);
-	if (!ctx->data.mr) {
-		err_log("Failed to allocate data MR\n");
-		goto free_dbuf;
-	}
+    int block_size = ctx->block_size; 
+    int k = ctx->attr.k;
+    int m = ctx->attr.m;
 
-	ctx->data.sge = calloc(ctx->attr.k, sizeof(*ctx->data.sge));
-	if (!ctx->data.sge) {
-		err_log("Failed to allocate data sges\n");
-		goto free_dbuf;
-	}
+    dsize = block_size * k;
+    csize = block_size * m;
+    info_log("data_size=%d, code_size=%d block_size=%d\n",
+            dsize, csize, block_size);
 
-	// each data block needs a sge to describe it
-	for (i = 0; i < ctx->attr.k; i++) {
-		ctx->data.sge[i].lkey = ctx->data.mr->lkey;
-		ctx->data.sge[i].addr = (uintptr_t)ctx->data.buf + i * ctx->block_size;
-		ctx->data.sge[i].length = ctx->block_size;
-	}
+    for(i = 0; i < max_inflight; i++) {
+        struct ec_mr *data = &buf[i].data;
+        data->buf = Calloc(1, dsize);
 
-	ctx->code.buf = calloc(1, csize);
-	if (!ctx->code.buf) {
-		err_log("Failed to allocate code buffer\n");
-		goto dereg_dmr;
-	}
+        /* Enable local write access
+         * I think these access rights apply to NICs not to CPU
+         * since we allocated these buffer
+         * our code can always access it
+         * But we need to tell the HW that our local NIC can access it
+         */
+        data->mr = ibv_reg_mr(ctx->pd, data->buf,
+                dsize, IBV_ACCESS_LOCAL_WRITE);
+        if (!data->mr) {
+            app_error("Failed to allocate data MR\n");
+        }
 
-	ctx->code.mr = ibv_reg_mr(ctx->pd, ctx->code.buf, csize,
-				  IBV_ACCESS_LOCAL_WRITE);
-	if (!ctx->code.mr) {
-		err_log("Failed to allocate code MR\n");
-		goto free_cbuf;
-	}
+        data->sge = Calloc(k, sizeof(struct ibv_sge));
 
-	ctx->code.sge = calloc(ctx->attr.m, sizeof(*ctx->code.sge));
-	if (!ctx->code.sge) {
-		err_log("Failed to allocate code sges\n");
-		goto free_dbuf;
-	}
+        // each data block needs a sge to describe it
+        for (j = 0; j < k; j++) {
+            data->sge[j].lkey = data->mr->lkey;
+            data->sge[j].addr = (uintptr_t)data->buf + j * block_size;
+            data->sge[j].length = block_size;
+        }
 
-	for (i = 0; i < ctx->attr.m; i++) {
-		ctx->code.sge[i].lkey = ctx->code.mr->lkey;
-		ctx->code.sge[i].addr = (uintptr_t)ctx->code.buf + i * ctx->block_size;
-		ctx->code.sge[i].length = ctx->block_size;
-	}
+        struct ec_mr *code = &buf[i].code;
+        code->buf = Calloc(1, csize);
 
-	ctx->mem.data_blocks = ctx->data.sge;
-	ctx->mem.num_data_sge = ctx->attr.k;
-	ctx->mem.code_blocks = ctx->code.sge;
-	ctx->mem.num_code_sge = ctx->attr.m;
-	ctx->mem.block_size = ctx->block_size;
+        code->mr = ibv_reg_mr(ctx->pd, code->buf, csize,
+                IBV_ACCESS_LOCAL_WRITE);
+        if (!code->mr)
+            app_error("Failed to allocate code->MR\n");
 
-	return 0;
+        code->sge = Calloc(m, sizeof(struct ibv_sge));
 
-free_dbuf:
-	free(ctx->data.buf);
-dereg_dmr:
-	ibv_dereg_mr(ctx->data.mr);
-free_cbuf:
-	free(ctx->code.buf);
+        for (j = 0; j < m; j++) {
+            code->sge[j].lkey = code->mr->lkey;
+            code->sge[j].addr = (uintptr_t)code->buf + j * block_size;
+            code->sge[j].length = block_size;
+        }
 
-	return -ENOMEM;
+        // set up the ibv_exp_ec_mem struct
+        buf[i].mem.data_blocks = data->sge;
+        buf[i].mem.num_data_sge = k;
+        buf[i].mem.code_blocks = code->sge;
+        buf[i].mem.num_code_sge = m;
+        buf[i].mem.block_size = block_size;
+
+        /* set up data_arr and code_arr
+         * use sizeof(*data_arr) is better than sizeof(uint8_t *)
+         * since if we change the type of data_arr
+         * we do not need to change this code
+         */
+        buf[i].data_arr = Calloc(k, sizeof(uint8_t *));
+        buf[i].code_arr = Calloc(m, sizeof(uint8_t *));
+
+
+        for (j = 0; j < k ; j++)
+            buf[i].data_arr[j] = data->buf + j * block_size;
+        for (j = 0; j < m ; j++)
+            buf[i].code_arr[j] = code->buf + j * block_size;
+    }
+    return 0;
 }
 
 struct ec_context *alloc_ec_ctx(struct ibv_pd *pd, int frame_size,
@@ -439,65 +441,12 @@ free_ctx:
 	return NULL;
 }
 
-void free_ec_ctx(struct ec_context *ctx)
-{
+void free_ec_ctx(struct ec_context *ctx) {
 	ibv_exp_dealloc_ec_calc(ctx->calc);
 	free_ec_mrs(ctx);
 	free(ctx->encode_matrix);
 	free(ctx->attr.encode_matrix);
 	free(ctx);
-}
-
-#define LOG_TABLE 0, 1, 4, 2, 8, 5, 10, 3, 14, 9, 7, 6, 13, 11, 12
-#define ILOG_TABLE 1, 2, 4, 8, 3, 6, 12, 11, 5, 10, 7, 14, 15, 13, 9
-
-const uint8_t gf_w4_log[]={LOG_TABLE};
-const uint8_t gf_w4_ilog[]={ILOG_TABLE};
-
-uint8_t gf_w4_mul(uint8_t x, uint8_t y)
-{
-        int log_x, log_y, log_r;
-
-        if (!x || !y)
-                return 0;
-
-        log_x = gf_w4_log[x - 1];
-        log_y = gf_w4_log[y - 1];
-        log_r = (log_x + log_y) % 15;
-
-        return gf_w4_ilog[log_r];
-}
-
-uint8_t galois_w4_mult(uint8_t x, uint8_t y4)
-{
-        uint8_t r_h, r_l;
-
-        r_h = gf_w4_mul(x >> 4, y4 & 0xf);
-        r_l = gf_w4_mul(x & 0xf, y4 & 0xf);
-
-        return (r_h << 4) | r_l;
-
-}
-
-int sw_ec_encode(struct ec_context *ctx)
-{
-	uint8_t *data = (uint8_t *)ctx->data.buf;
-	uint8_t *code = (uint8_t *)ctx->code.buf;
-	uint8_t *matrix = (uint8_t *)ctx->attr.encode_matrix;
-	int block_size = ctx->block_size, index, offset;
-	int i, j, m = ctx->attr.m;
-
-	for (i = 0; i < block_size * ctx->attr.k; i++) {
-		index = i / block_size;
-		offset = i % block_size;
-
-		for (j = 0; j < m; j++)
-            // in GF field, XOR is equivalent to + ????
-			code[block_size*j + offset] ^=
-			galois_w4_mult(data[i], matrix[index*m+j]);
-	}
-
-	return 0;
 }
 
 struct ibv_device *find_device(const char *devname)

@@ -45,8 +45,6 @@ static void usage(const char *argv0)
 	printf("  -F, --file_size=<size>       size of file in bytes\n");
 	printf("  -s, --frame_size=<size>      size of EC frame\n");
 	printf("  -t, --thread_number=<number> number of threads used\n");
-	printf("  -V, --verbs                  use verbs api\n");
-	printf("  -S, --software_ec            use software EC(Jerasure library)\n");
 	printf("  -d, --debug                  print debug messages\n");
 	printf("  -v, --verbose                add verbosity\n");
 	printf("  -h, --help                   display this output\n");
@@ -63,15 +61,14 @@ static int process_inargs(int argc, char *argv[], struct inargs *in)
 		{ .name = "code_blocks",   .has_arg = 1, .val = 'm' },
 		{ .name = "gf",            .has_arg = 1, .val = 'w' },
 		{ .name = "thread_number", .has_arg = 1, .val = 't' },
-		{ .name = "verbs",         .has_arg = 0, .val = 'V' },
-		{ .name = "sw",            .has_arg = 0, .val = 'S' },
+        { .name = "max_inflight",  .has_arg = 1, .val = optval_max_inflight_calcs },
 		{ .name = "debug",         .has_arg = 0, .val = 'd' },
 		{ .name = "verbose",       .has_arg = 0, .val = 'v' },
 		{ .name = "help",          .has_arg = 0, .val = 'h' },
 		{ .name = 0, .has_arg = 0, .val = 0 }
 	};
 
-	err = common_process_inargs(argc, argv, "i:F:s:k:m:w:t:VShdv",
+	err = common_process_inargs(argc, argv, "i:F:s:k:m:w:t:hdv",
 			long_options, in, usage);
 	if (err)
 		return err;

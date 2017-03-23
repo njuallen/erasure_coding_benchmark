@@ -56,36 +56,39 @@
 #define info_log	if (verbose) printf
 #define err_log		printf
 
+enum long_opt_value {optval_max_inflight_calcs = 256};
+
 struct inargs {
-	char	*devname;
-	int	k;
-	int	m;
-	// Galois field GF(2^w)
-	int	w;
-	char    *datafile;
-	char    *codefile;
-	/* size of file in bytes
-	 * we use long long int
-	 * since the NIC is so powerful
-	 * only very large files can make it busy
-	 */
-	long long int file_size;
-	// size of EC frame
-	int	frame_size;
-	// number of threads used
-	int nthread;
-	// string of failed_blocks
-	char	*failed_blocks;
-	// ??????????
-	int	depth;
-	// ??????????
-	int	duration;
-	// using verbs api?
-	int verbs;
-	// using software EC?
-	int	sw;
-	// using mlx eco library?
-	int mlx_lib;
+    char	*devname;
+    int	k;
+    int	m;
+    // Galois field GF(2^w)
+    int	w;
+    char    *datafile;
+    char    *codefile;
+    /* size of file in bytes
+     * we use long long int
+     * since the NIC is so powerful
+     * only very large files can make it busy
+     */
+    long long int file_size;
+    // size of EC frame
+    int	frame_size;
+    // number of threads used
+    int nthread;
+    // string of failed_blocks
+    char	*failed_blocks;
+    // ??????????
+    int	depth;
+    // ??????????
+    int	duration;
+    int max_inflight_calcs;
+    // using sync verbs api?
+    int sync_verbs;
+    // using async verbs api?
+    int async_verbs;
+    // using software EC?
+    int	jerasure;
 };
 
 extern struct sockaddr_storage ssin;

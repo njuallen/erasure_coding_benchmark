@@ -42,8 +42,7 @@ int common_process_inargs(int argc, char *argv[],
 			  char *opt_str,
 			  struct option *long_options,
 			  struct inargs *in,
-			  void (*usage)(const char *))
-{
+			  void (*usage)(const char *)) {
 	in->devname = NULL;
 	in->file_size = 0LL;
 	in->frame_size = 1000;
@@ -53,9 +52,7 @@ int common_process_inargs(int argc, char *argv[],
 	in->m = 4;
 	in->w = 4;
 	in->nthread = 1;
-	in->verbs = 0;
-	in->sw = 0;
-	in->mlx_lib = 0;
+	in->max_inflight_calcs = 1;
 
 	while (1) {
 		int c, ret;
@@ -151,6 +148,14 @@ int common_process_inargs(int argc, char *argv[],
                 */
                 break;
 
+            case optval_max_inflight_calcs:
+                in->max_inflight_calcs = strtol(optarg, NULL, 0);
+                if (in->max_inflight_calcs <= 0) {
+                    usage(argv[0]);
+                    return -EINVAL;
+                }
+                break;
+
             case 'q':
                 in->depth = strtol(optarg, NULL, 0);
                 if (in->depth <= 0) {
@@ -165,18 +170,6 @@ int common_process_inargs(int argc, char *argv[],
                     usage(argv[0]);
                     return -EINVAL;
                 }
-                break;
-
-            case 'S':
-                in->sw = 1;
-                break;
-
-            case 'V':
-                in->verbs = 1;
-                break;
-
-            case 'L':
-                in->mlx_lib = 1;
                 break;
 
             case 'v':

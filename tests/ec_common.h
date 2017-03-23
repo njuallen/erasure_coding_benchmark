@@ -33,42 +33,47 @@
 #ifndef EC_COMMON_H
 #define EC_COMMON_H
 
-#include "common.h"
-#include "csapp.h"
 #include <infiniband/verbs_exp.h>
 #include <jerasure.h>
 #include <jerasure/reed_sol.h>
 #include <gf_complete.h>
+#include "common.h"
+#include "csapp.h"
+#include "utils.h"
 
 struct ec_mr {
-	uint8_t				*buf;
-	struct ibv_mr			*mr;
-	struct ibv_sge			*sge;
+    uint8_t				*buf;
+    struct ibv_mr			*mr;
+    struct ibv_sge			*sge;
+};
+
+struct ec_mem {
+    // jerasure library needs this
+    uint8_t **data_arr, **code_arr;
+    struct ec_mr			data;
+    struct ec_mr			code;
+    // verbs api needs this
+    struct ibv_exp_ec_mem		mem;
 };
 
 struct ec_context {
-	struct ibv_context		*context;
-	struct ibv_pd			*pd;
-	// Allen: Verbs erasure coding engine context.
-	struct ibv_exp_ec_calc		*calc;
-	// Allen: Verbs erasure coding engine initialization attributes. 
-	struct ibv_exp_ec_calc_init_attr attr;
-	// Allen: Size of the input blocks.
-	int				block_size;
-	struct ec_mr			data;
-	struct ec_mr			code;
-	uint8_t 			**data_arr;
-	uint8_t 			**code_arr;
-	// Allen: Verbs erasure coding memory layout context used for 64 bytes aligned buffers.
-	// 实际上就是描述了data block和code block分别是哪些sge，
-	struct ibv_exp_ec_mem		mem;
-	uint8_t				*en_mat;
-	uint8_t				*de_mat;
-	int				*encode_matrix;
-	int				*int_erasures;
-	uint8_t 			*u8_erasures;
-	int				*survived_arr;
-	uint32_t			survived;
+    struct ibv_context		*context;
+    struct ibv_pd			*pd;
+    // Allen: Verbs erasure coding engine context.
+    struct ibv_exp_ec_calc		*calc;
+    // Allen: Verbs erasure coding engine initialization attributes. 
+    struct ibv_exp_ec_calc_init_attr attr;
+    // Allen: Size of the input blocks.
+    int				block_size;
+    // used memory
+    struct ec_mem *buf;
+    uint8_t				*en_mat;
+    uint8_t				*de_mat;
+    int				*encode_matrix;
+    int				*int_erasures;
+    uint8_t 			*u8_erasures;
+    int				*survived_arr;
+    uint32_t			survived;
 };
 
 void free_encode_matrix(struct ec_context *ctx);
@@ -81,7 +86,6 @@ struct ec_context *alloc_ec_ctx(struct ibv_pd *pd, int frame_size,
 				int max_inflight_calcs,
 				char *failed_blocks);
 void free_ec_ctx(struct ec_context *ctx);
-int sw_ec_encode(struct ec_context *ctx);
 void close_ec_ctx(struct ec_context *ctx);
 void print_matrix_int(int *m, int rows, int cols);
 void print_matrix_u8(uint8_t *m, int rows, int cols);
