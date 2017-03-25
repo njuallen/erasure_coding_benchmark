@@ -1,0 +1,3 @@
+# latency of encoding 40GB data
+# sync_verbs async_verbs jerasure
+single_thread 19.28 14.25 17.12

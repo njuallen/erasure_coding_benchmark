@@ -5,5 +5,6 @@ set grid
 set term jpeg
 set output 'throughput.jpg'
 
-plot "verbs.data" using 1:(40/$3) w lp pt 8 title "Verbs", \
+plot "sync_verbs.data" using 1:(40/$3) w lp pt 8 title "sync_verbs", \
+	 "async_verbs.data" using 1:(40/$3) w lp pt 8 title "async_verbs", \
 	 "sw.data" using 1:(40/$3) w lp pt 5 title "Jerasure"
