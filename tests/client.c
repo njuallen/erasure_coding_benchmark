@@ -161,12 +161,14 @@ int main(int argc, char *argv[]) {
         sges[i].length = block_size;
         sges[i].lkey = cb->conn_buf_mr->lkey;
         sges[i].addr = (uint64_t)((char *)cb->conn_buf + i * block_size);
+        strcpy((char *)sges[i].addr, "miao miao miao!\n");
         // with this field, we can distinguish CQEs
         send_wrs[i].wr_id = i;
         send_wrs[i].sg_list = &sges[i];
         send_wrs[i].num_sge = 1;
         send_wrs[i].next = NULL;
         send_wrs[i].opcode = IBV_WR_SEND;
+        send_wrs[i].send_flags = IBV_SEND_SIGNALED;
     }
 
     int ret;
@@ -183,12 +185,16 @@ int main(int argc, char *argv[]) {
     struct ibv_wc wc[HRD_Q_DEPTH];
 
     // clean up
+    int cnt = 0;
     while(1) {
         for(i = 0; i < num_clients; i++) {
             int ret = ibv_poll_cq(cb->conn_cq[i], HRD_Q_DEPTH, wc);
             CPE(ret < 0, "ibv_poll_cq failed", -1);
             for(j = 0; j < ret; j++) {
+                if(wc[j].status != 0) 
+                    printf("Bad wc status: %s\n", ibv_wc_status_str(wc[j].status));
                 CPE(wc[j].status != 0, "Bad wc status", -1);
+                printf("cnt: %d\n", ++cnt);
                 // post the send to the receive queue again
                 int id = wc[j].wr_id;
                 send_wrs[id].wr_id = id;
@@ -196,6 +202,7 @@ int main(int argc, char *argv[]) {
                 send_wrs[id].num_sge = 1;
                 send_wrs[id].next = NULL;
                 send_wrs[i].opcode = IBV_WR_SEND;
+                send_wrs[i].send_flags = IBV_SEND_SIGNALED;
                 ret = ibv_post_send(cb->conn_qp[i], &send_wrs[id], &bad_wr);
                 CPE(ret, "ibv_post_send", -1);
             }

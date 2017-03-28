@@ -31,6 +31,9 @@
  */
 
 #include "ec_common.h"
+#include "hrd.h"
+
+#define Q_WR_BUFFER_SIZE HRD_Q_DEPTH
 
 static void usage(const char *argv0)
 {
@@ -39,12 +42,13 @@ static void usage(const char *argv0)
 	printf("\n");
 	printf("Options:\n");
 	printf("  -i, --ib-dev=<dev>           use IB device <dev> (default first device found)\n");
+    printf("  -p, --ib-port-index=<dev>    IB port index\n");
+    printf("  -g, --gid-index=<index>      GID index\n");
 	printf("  -k, --data_blocks=<blocks>   Number of data blocks\n");
 	printf("  -m, --code_blocks=<blocks>   Number of code blocks\n");
 	printf("  -w, --gf=<gf>                Galois field GF(2^w)\n");
 	printf("  -F, --file_size=<size>       size of file in bytes\n");
 	printf("  -s, --frame_size=<size>      size of EC frame\n");
-	printf("  -t, --thread_number=<number> number of threads used\n");
 	printf("  -d, --debug                  print debug messages\n");
 	printf("  -v, --verbose                add verbosity\n");
 	printf("  -h, --help                   display this output\n");
@@ -52,37 +56,31 @@ static void usage(const char *argv0)
 
 static int process_inargs(int argc, char *argv[], struct inargs *in)
 {
-	int err;
-	struct option long_options[] = {
-		{ .name = "ib-dev",        .has_arg = 1, .val = 'i' },
-		{ .name = "file_size",     .has_arg = 1, .val = 'F' },
-		{ .name = "frame_size",    .has_arg = 1, .val = 's' },
-		{ .name = "data_blocks",   .has_arg = 1, .val = 'k' },
-		{ .name = "code_blocks",   .has_arg = 1, .val = 'm' },
-		{ .name = "gf",            .has_arg = 1, .val = 'w' },
-		{ .name = "thread_number", .has_arg = 1, .val = 't' },
-        { .name = "max_inflight",  .has_arg = 1, .val = optval_max_inflight_calcs },
-		{ .name = "debug",         .has_arg = 0, .val = 'd' },
-		{ .name = "verbose",       .has_arg = 0, .val = 'v' },
-		{ .name = "help",          .has_arg = 0, .val = 'h' },
-		{ .name = 0, .has_arg = 0, .val = 0 }
-	};
+    int err;
+    struct option long_options[] = {
+        { .name = "ib-dev",        .has_arg = 1, .val = 'i' },
+        { .name = "ib-port-index", .has_arg = 1, .val = 'p' },
+        { .name = "gid-index",     .has_arg = 1, .val = 'g' },
+        { .name = "file_size",     .has_arg = 1, .val = 'F' },
+        { .name = "frame_size",    .has_arg = 1, .val = 's' },
+        { .name = "data_blocks",   .has_arg = 1, .val = 'k' },
+        { .name = "code_blocks",   .has_arg = 1, .val = 'm' },
+        { .name = "gf",            .has_arg = 1, .val = 'w' },
+        { .name = "debug",         .has_arg = 0, .val = 'd' },
+        { .name = "verbose",       .has_arg = 0, .val = 'v' },
+        { .name = "help",          .has_arg = 0, .val = 'h' },
+        { .name = 0, .has_arg = 0, .val = 0 }
+    };
 
-	err = common_process_inargs(argc, argv, "i:F:s:k:m:w:t:hdv",
-			long_options, in, usage);
-	if (err)
-		return err;
+    err = common_process_inargs(argc, argv, "i:p:g:F:s:k:m:w:hdv",
+            long_options, in, usage);
+    if (err)
+        return err;
 
-	return 0;
+    return 0;
 }
 
-/* the total number of encode operations needs to be done
- * all threads share this counter
- * each time, each thread gets some work and decreases this counter
- * If the value of the counter is below zero,
- * there is no more work, threads can exit.
- */
-long long *iterations;
+long long iterations;
 uint8_t **data_arr;
 uint8_t **code_arr;
 uint8_t *data, *code;
@@ -91,48 +89,85 @@ int frame_size;
 int code_size;
 int *matrix;
 int k, m, w;
-int shmid;
-int shmkey = 12222;
+int num_clients;
+struct hrd_ctrl_blk *cb;
+struct ibv_send_wr *send_wrs;
+struct ibv_sge *sges;
+struct queue buffer_queue;
+int *outstanding_send;
 
-static int encode_benchmark(void) {
+int is_ready_to_send() {
+    // no available memory blocks
+    if(buffer_queue.cnt < num_clients)
+        return 0;
     int i;
-    // the number jobs that this process do
-    long long jobs = 0;
-
-    while(1) {
-        long long batch = 20;
-        // use batching to avoid much contention
-        long long iter = __sync_fetch_and_sub(iterations, batch);
-        // finished
-        if(iter <= 0)
-            break;
-
-        // the number of operations to do this time
-        int nops = (iter < batch) ? iter : batch;
-        jobs += nops;
-
-        for(i = 0; i < nops; i++) {
-            memset(code, 0, block_size * m);
-            jerasure_matrix_encode(k, m, w, matrix, (char **)data_arr, (char **)code_arr, block_size);
-        }
+    // the send queue is full
+    for(i = 0; i < num_clients; i++) {
+        if(outstanding_send[i] == HRD_Q_DEPTH)
+            return 0;
     }
-    // use this to check whether the total number of jobs done by all processes are correct
-    dbg_log("jobs: %lld\n", jobs);
-    return 0;
+    return 1;
 }
 
-static void set_buffers()
-{
-    int i;
-    data_arr = Calloc(k, sizeof(*data_arr));
-    code_arr = Calloc(m, sizeof(*code_arr));
+static int encode_benchmark(void) {
+    int i, j;
+    int ret;
+    data_arr = Malloc(sizeof(uint8_t *) * k);
+    code_arr = Malloc(sizeof(uint8_t *) * m);
 
-    for (i = 0; i < k ; i++) {
-        data_arr[i] = data + i * block_size;
+    struct ibv_send_wr **wrs = Calloc(num_clients, sizeof(struct ibv_send_wr *));
+    outstanding_send = Calloc(num_clients, sizeof(int));
+
+    struct ibv_send_wr *bad_wr;
+    while(iterations) {
+        if(is_ready_to_send()) {
+            struct ibv_send_wr *wr;
+            for(i = 0; i < k; i++) {
+                wr = dequeue(&buffer_queue);
+                data_arr[i] = (uint8_t *)wr->sg_list[0].addr;
+                memcpy(data_arr[i], data + block_size * i, block_size);
+                wrs[i] = wr;
+            }
+            for(i = 0; i < m; i++) {
+                wr = dequeue(&buffer_queue);
+                code_arr[i] = (uint8_t *)wr->sg_list[0].addr;
+                memset(code_arr[i], 0, block_size);
+                wrs[k + i] = wr;
+            }
+            jerasure_matrix_encode(k, m, w, matrix, (char **)data_arr, (char **)code_arr, block_size);
+            // now we need to send data and code blocks
+            // server should post sends first
+            for(i = 0; i < num_clients; i++) {
+                ret = ibv_post_send(cb->conn_qp[i], wrs[i], &bad_wr);
+                outstanding_send[i]++;
+                CPE(ret, "ibv_post_send", -1);
+            }
+            iterations--;
+        }
+        struct ibv_wc wc[HRD_Q_DEPTH];
+        for(i = 0; i < num_clients; i++) {
+            ret = ibv_poll_cq(cb->conn_cq[i], HRD_Q_DEPTH, wc);
+            CPE(ret < 0, "ibv_poll_cq failed", -1);
+            outstanding_send[i] -= ret;
+            for(j = 0; j < ret; j++) {
+                int id = wc[j].wr_id;
+                send_wrs[id].wr_id = id;
+                send_wrs[id].sg_list = &sges[id];
+                send_wrs[id].num_sge = 1;
+                send_wrs[id].next = NULL;
+                send_wrs[i].opcode = IBV_WR_SEND;
+                send_wrs[i].send_flags = IBV_SEND_SIGNALED;
+                if(wc[j].status != 0) {
+                    // failed
+                    printf("Bad wc status: %s\n", ibv_wc_status_str(wc[j].status));
+                    exit(0);
+                }
+                else
+                    enqueue(&buffer_queue, &send_wrs[i]);
+            }
+        }
     }
-    for (i = 0; i < m ; i++) {
-        code_arr[i] = code + i * block_size;
-    }
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -147,25 +182,16 @@ int main(int argc, char *argv[]) {
     m = in.m;
     w = in.w;
 
-    shmid = Shmget(shmkey, sizeof(long long), IPC_CREAT | IPC_EXCL | S_IRWXU);
-    iterations = Shmat(shmid, NULL, 0);
-
     block_size = align_any((in.frame_size + k - 1) / k, 64);
     // the real frame_size we use after aligning block_size to 64 bytes
     frame_size = block_size * k;
     code_size = block_size * m;
-    *iterations = in.file_size / frame_size;
+    iterations = in.file_size / frame_size;
 
     dbg_log("iterations: %lld\nblock_size: %d\nframe_size: %d\n", 
-            *iterations, block_size, frame_size);
+            iterations, block_size, frame_size);
 
-    /* eventually, every child process will 
-     * get their own copy of data code due to COW
-     */
     data = (uint8_t *)Malloc(sizeof(uint8_t) * frame_size);
-    code = (uint8_t *)Malloc(sizeof(uint8_t) * code_size);
-
-    set_buffers();
 
     int i = 0;
     srand(time(NULL));
@@ -179,27 +205,97 @@ int main(int argc, char *argv[]) {
         return -EINVAL;
     }
 
+    num_clients = k + m;
+
+    block_size = align_any((in.frame_size + k - 1) / k, 64);
+
+    int recv_buf_size = block_size * Q_WR_BUFFER_SIZE * num_clients;
+
+    /* 这个ib_port_index是我们给机器上所有的interface编个号的那个号
+     * 即同一个机器上，所有网卡的所有port放在一起编的那个号
+     * libhrd用到了这个
+     */
+    int ib_port_index = in.ib_port_index;
+
+    int gid_index = in.gid_index;
+
+    /* from herds api:
+     * local_hid can be anything, 
+     * it's just control block identifier that is
+     * useful in printing debug info.
+     *
+     * do not use huge page
+     * use RC
+     */
+    cb = hrd_ctrl_blk_init(1,	/* local hid */
+            ib_port_index, gid_index, -1, /* port index, numa node id */
+            num_clients, 0,	/* #conn_qps, use_uc */
+            NULL, recv_buf_size, -1,
+            0, 0, -1);	/* #dgram qps, buf size, shm key */
+
+    /* Zero out the request buffer */
+    memset((void *) cb->conn_buf, 0, recv_buf_size);
+
+    /* Register all created QPs ! */
+    for(i = 0; i < num_clients; i++) {
+        char client_name[HRD_QP_NAME_SIZE];
+        sprintf(client_name, "client-conn-%d", i);
+        hrd_publish_conn_qp(cb, i, client_name);
+    }
+
+    printf("main: Client published all QPs on port %d\n", ib_port_index);
+
+    for(i = 0; i < num_clients; i++) {
+        char srv_conn_qp_name[HRD_QP_NAME_SIZE];
+        sprintf(srv_conn_qp_name, "server-conn-%d", i);
+        printf("main: client search for server_qp: %s\n", srv_conn_qp_name);
+
+        struct hrd_qp_attr *srv_qp = NULL;
+        while(srv_qp == NULL) {
+            srv_qp = hrd_get_published_qp(srv_conn_qp_name);
+            if(srv_qp == NULL) {
+                usleep(200000);
+            }
+        }
+
+        printf("main: Client found server qp %d of %d. Connecting..\n",
+                i, num_clients);
+
+        hrd_connect_qp(cb, i, srv_qp);
+        char mstr_qp_name[HRD_QP_NAME_SIZE];
+        sprintf(mstr_qp_name, "server-%d", i);
+        hrd_wait_till_ready(mstr_qp_name);
+    }
+
+    send_wrs = Calloc(Q_WR_BUFFER_SIZE * num_clients, 
+            sizeof(struct ibv_send_wr));
+
+    sges = Calloc(Q_WR_BUFFER_SIZE * num_clients,
+            sizeof(struct ibv_sge));
+
+    queue_init(&buffer_queue, Q_WR_BUFFER_SIZE * num_clients);
+
+    for(i = 0; i < Q_WR_BUFFER_SIZE * num_clients; i++)
+        enqueue(&buffer_queue, &send_wrs[i]);
+
+    for(i = 0; i < Q_WR_BUFFER_SIZE * num_clients; i++) {
+        sges[i].length = block_size;
+        sges[i].lkey = cb->conn_buf_mr->lkey;
+        sges[i].addr = (uint64_t)((char *)cb->conn_buf + i * block_size);
+        // with this field, we can distinguish CQEs
+        send_wrs[i].wr_id = i;
+        send_wrs[i].sg_list = &sges[i];
+        send_wrs[i].num_sge = 1;
+        send_wrs[i].next = NULL;
+        send_wrs[i].opcode = IBV_WR_SEND;
+        send_wrs[i].send_flags = IBV_SEND_SIGNALED;
+    }
     // timing
     struct tms	tmsstart, tmsend;
     clock_t		start, end;
     start = Times(&tmsstart);
 
-    int nprocess = in.nthread;
-    pid_t *pid = (pid_t *)Malloc(nprocess * sizeof(pid_t)); 
-    for(i = 0; i < nprocess; i++) {
-        pid[i] = Fork();
-        if(pid[i] == 0) {
-            // child proccess do encoding
-            iterations = Shmat(shmid, NULL, 0);
-            encode_benchmark();
-            Shmdt(iterations);
-            exit(0);
-        }
-    }
-
-    // wait for all child to exit
-    for(i = 0; i < nprocess; i++)
-        Waitpid(pid[i], NULL, 0);
+    encode_benchmark();
 
     end = Times(&tmsend);
     double time_real = 0.0;
@@ -208,11 +304,8 @@ int main(int argc, char *argv[]) {
     printf("%.2f\n", time_real);
 
     // clean up
-    free(pid);
     free(data);
     free(code);
     free(matrix);
-    Shmdt(iterations);
-    Shmctl(shmid, IPC_RMID, NULL);
     return 0;
 }

@@ -7,6 +7,7 @@ void queue_init(struct queue *q, int size) {
     q->size = size + 1;
     // initially the circular buffer is empty
     q->head = q->tail = 0;
+    q->cnt = 0;
     q->buffer = (void *)Calloc(size + 1, sizeof(void *));
 }
 
@@ -16,6 +17,7 @@ void enqueue(struct queue *q, void *e) {
 	q->buffer[q->tail] = e;
 	q->tail++;
 	q->tail %= q->size;
+    q->cnt++;
 }
 
 int queue_is_full(struct queue *q) {
@@ -32,11 +34,13 @@ void *dequeue(struct queue *q) {
 	void *ret = q->buffer[q->head];
 	q->head++;
 	q->head %= q->size;
+    q->cnt--;
 	return ret;
 }
 
 void queue_destroy(struct queue *q) {
 	q->size = 0;
 	q->head = q->tail = 0;
+    q->cnt = 0;
 	Free(q->buffer);
 }

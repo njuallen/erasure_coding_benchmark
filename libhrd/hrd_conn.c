@@ -91,12 +91,6 @@ hrd_ctrl_blk_init(int local_hid, int port_index,
 #ifdef HRD_RoCE
     int rc = ibv_query_gid (cb->ctx, cb->dev_port_id, gid_index, &cb->gid);
     CPE(rc, "HRD: Couldn't get gid", 0);
-    uint8_t *p = &cb->gid;
-    fprintf (stdout,
-            "GID = %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",
-            p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9],
-            p[10], p[11], p[12], p[13], p[14], p[15]);
-
 #endif
 
     cb->pd = ibv_alloc_pd(cb->ctx);
@@ -476,7 +470,7 @@ void hrd_connect_qp(struct hrd_ctrl_blk *cb,
 	struct ibv_qp_attr conn_attr;
 	memset(&conn_attr, 0, sizeof(struct ibv_qp_attr));
 	conn_attr.qp_state = IBV_QPS_RTR;
-	conn_attr.path_mtu = IBV_MTU_256;
+	conn_attr.path_mtu = IBV_MTU_4096;
 	conn_attr.dest_qp_num = remote_qp_attr->qpn;
 	conn_attr.rq_psn = HRD_DEFAULT_PSN;
 
@@ -487,12 +481,9 @@ void hrd_connect_qp(struct hrd_ctrl_blk *cb,
 	conn_attr.ah_attr.port_num = cb->dev_port_id; /* Local port! */
 
 #ifdef HRD_RoCE
+    // currently, our mlx5 RoCE cards has mtu 1024
+	conn_attr.path_mtu = IBV_MTU_1024;
     conn_attr.ah_attr.grh.dgid = remote_qp_attr->gid;
-    uint8_t *p = &remote_qp_attr->gid;
-    fprintf (stdout,
-            "Remote GID = %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",
-            p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9],
-            p[10], p[11], p[12], p[13], p[14], p[15]);
 	conn_attr.ah_attr.is_global = 1;
     conn_attr.ah_attr.grh.flow_label = 0;
     conn_attr.ah_attr.grh.hop_limit = 1;
@@ -656,15 +647,15 @@ struct hrd_qp_attr* hrd_get_published_qp(const char *qp_name)
 
 	int len = strlen(qp_name);
 	int i;
-	for(i = 0; i < len; i++) {
-		if(qp_name[i] == ' ') {
-			fprintf(stderr, "HRD: Space not allowed in QP name\n");
-			exit(-1);
-		}
-	}
+    for(i = 0; i < len; i++) {
+        if(qp_name[i] == ' ') {
+            fprintf(stderr, "HRD: Space not allowed in QP name\n");
+            exit(-1);
+        }
+    }
 
 	int ret_len = hrd_get_published(qp_name, (void **) &ret);
-
+    
 	/* 
 	 * The registry lookup returns only if we get a unique QP for @qp_name, or
 	 * if the memcached lookup succeeds but we don't have an entry for @qp_name.

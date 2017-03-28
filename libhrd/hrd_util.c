@@ -385,9 +385,9 @@ int hrd_get_published(const char *key, void **value)
 
 	*value = memcached_get(memc, key, strlen(key), &value_length, &flags, &rc);
 
-	if(rc == MEMCACHED_SUCCESS ) {
-		return (int) value_length;
-	} else if (rc == MEMCACHED_NOTFOUND) {
+    if(rc == MEMCACHED_SUCCESS ) {
+        return (int) value_length;
+    } else if (rc == MEMCACHED_NOTFOUND) {
 		assert(*value == NULL);
 		return -1;
 	} else {

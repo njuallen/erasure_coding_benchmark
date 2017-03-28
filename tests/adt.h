@@ -2,7 +2,10 @@
 #define __ADT_H__
 
 struct queue {
-    int head, tail, size;
+    /* size: the size of the queue
+     * cnt: the number of elements in the queue
+     */
+    int head, tail, size, cnt;
     void **buffer;
 };
 

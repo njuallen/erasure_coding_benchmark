@@ -14,11 +14,13 @@ EC_COMMON_OBJS = $(COMMON_OBJS) ec_common.o
 OBJECTS_LAT = $(EC_COMMON_OBJS) \
 			  ec_capability_test.o \
 			  ec_encoder_sync_verbs.o ec_encoder_async_verbs.o ec_encoder_sw.o \
+			  ec_sw_encode_send.o \
 			  ec_decoder_verbs.o ec_decoder_sw.o \
 			  main.o ppc.o server.o client.o
 
 TARGETS = ibv_ec_capability_test \
 		  ibv_ec_encoder_sync_verbs ibv_ec_encoder_async_verbs ibv_ec_encoder_sw \
+		  ibv_ec_sw_encode_send \
 		  ibv_ec_decoder_verbs ibv_ec_decoder_sw \
 		  ibv_main ibv_ppc ibv_pcchecker ibv_server ibv_client
 
@@ -51,6 +53,9 @@ ibv_ec_encoder_async_verbs: ec_encoder_async_verbs.o $(EC_COMMON_OBJS)
 
 ibv_ec_encoder_sw: ec_encoder_sw.o $(EC_COMMON_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) ec_encoder_sw.o $(EC_COMMON_OBJS) -o $@
+
+ibv_ec_sw_encode_send: ec_sw_encode_send.o $(EC_COMMON_OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) ec_sw_encode_send.o $(EC_COMMON_OBJS) -o $@
 
 ibv_ec_decoder_verbs: ec_decoder_verbs.o $(EC_COMMON_OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) ec_decoder_verbs.o $(EC_COMMON_OBJS) -o $@

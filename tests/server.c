@@ -204,6 +204,7 @@ int main(int argc, char *argv[]) {
                 recv_wrs[id].sg_list = &sges[id];
                 recv_wrs[id].num_sge = 1;
                 recv_wrs[id].next = NULL;
+                // printf("client: %s", (char *)sges[id].addr);
                 ret = ibv_post_recv(cb->conn_qp[i], &recv_wrs[id], &bad_wr);
                 CPE(ret, "ibv_post_recv", -1);
             }
