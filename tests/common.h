@@ -60,6 +60,10 @@ enum long_opt_value {optval_max_inflight_calcs = 256};
 
 struct inargs {
     char	*devname;
+    // ib_port index, libhrd uses this
+    int ib_port_index;
+    // gid_index, RoCE needs this
+    int gid_index;
     int	k;
     int	m;
     // Galois field GF(2^w)

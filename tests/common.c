@@ -42,24 +42,26 @@ int common_process_inargs(int argc, char *argv[],
 			  char *opt_str,
 			  struct option *long_options,
 			  struct inargs *in,
-			  void (*usage)(const char *)) {
-	in->devname = NULL;
-	in->file_size = 0LL;
-	in->frame_size = 1000;
-	in->datafile = NULL;
-	in->codefile = NULL;
-	in->k = 10;
-	in->m = 4;
-	in->w = 4;
-	in->nthread = 1;
-	in->max_inflight_calcs = 1;
+              void (*usage)(const char *)) {
+    in->devname = NULL;
+    in->ib_port_index = 0;
+    in->gid_index = 0;
+    in->file_size = 0LL;
+    in->frame_size = 1000;
+    in->datafile = NULL;
+    in->codefile = NULL;
+    in->k = 10;
+    in->m = 4;
+    in->w = 4;
+    in->nthread = 1;
+    in->max_inflight_calcs = 1;
 
-	while (1) {
-		int c, ret;
+    while (1) {
+        int c, ret;
 
-		c = getopt_long(argc, argv, opt_str, long_options, NULL);
-		if (c == -1)
-			break;
+        c = getopt_long(argc, argv, opt_str, long_options, NULL);
+        if (c == -1)
+            break;
 
         switch (c) {
             case 'a':
@@ -71,6 +73,26 @@ int common_process_inargs(int argc, char *argv[],
                 if (ret < 0) {
                     err_log("failed devname asprintf\n");
                     return ret;
+                }
+                break;
+
+            case 'p':
+                in->ib_port_index = strtol(optarg, NULL, 0);
+                /* libhrd requires this
+                 * and I haven't figured out why
+                 */
+                if (in->ib_port_index < 0 || in->ib_port_index > 16) {
+                    err_log("invalid ib_port_index\n");
+                    usage(argv[0]);
+                    return -EINVAL;
+                }
+
+            case 'g':
+                in->gid_index = strtol (optarg, NULL, 0);
+                if (in->ib_port_index < 0) {
+                    err_log("invalid gid_index\n");
+                    usage(argv[0]);
+                    return -EINVAL;
                 }
                 break;
 
@@ -109,6 +131,7 @@ int common_process_inargs(int argc, char *argv[],
             case 't':
                 in->nthread = strtol(optarg, NULL, 0);
                 if (in->nthread < 0) {
+                    err_log("invalid nthread\n");
                     usage(argv[0]);
                     return -EINVAL;
                 }
@@ -117,6 +140,7 @@ int common_process_inargs(int argc, char *argv[],
             case 's':
                 in->frame_size = strtol(optarg, NULL, 0);
                 if (in->frame_size < 0) {
+                    err_log("invalid frame_size\n");
                     usage(argv[0]);
                     return -EINVAL;
                 }
@@ -125,6 +149,7 @@ int common_process_inargs(int argc, char *argv[],
             case 'k':
                 in->k = strtol(optarg, NULL, 0);
                 if (in->k <= 0 || in->k > 16) {
+                    err_log("invalid k\n");
                     usage(argv[0]);
                     return -EINVAL;
                 }
@@ -133,6 +158,7 @@ int common_process_inargs(int argc, char *argv[],
             case 'm':
                 in->m = strtol(optarg, NULL, 0);
                 if (in->m <= 0 || in->m > 4) {
+                    err_log("invalid m\n");
                     usage(argv[0]);
                     return -EINVAL;
                 }
@@ -141,16 +167,17 @@ int common_process_inargs(int argc, char *argv[],
             case 'w':
                 in->w = strtol(optarg, NULL, 0);
                 /*
-                if (in->w != 1 && in->w != 2 && in->w != 4) {
-                    usage(argv[0]);
-                    return -EINVAL;
-                }
-                */
+                   if (in->w != 1 && in->w != 2 && in->w != 4) {
+                   usage(argv[0]);
+                   return -EINVAL;
+                   }
+                   */
                 break;
 
             case optval_max_inflight_calcs:
                 in->max_inflight_calcs = strtol(optarg, NULL, 0);
                 if (in->max_inflight_calcs <= 0) {
+                    err_log("invalid max_inflight_calcs\n");
                     usage(argv[0]);
                     return -EINVAL;
                 }
@@ -188,9 +215,9 @@ int common_process_inargs(int argc, char *argv[],
                 usage(argv[0]);
                 return -EINVAL;
         }
-	}
+    }
 
-	return 0;
+    return 0;
 }
 
 int get_addr(char *dst, struct sockaddr *addr)

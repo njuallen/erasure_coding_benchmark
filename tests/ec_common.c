@@ -348,97 +348,97 @@ struct ec_context *alloc_ec_ctx(struct ibv_pd *pd, int frame_size,
 				int max_inflight_calcs,
 				char *failed_blocks)
 {
-	struct ec_context *ctx;
-	struct ibv_exp_device_attr dattr;
-	int err;
+    struct ec_context *ctx;
+    struct ibv_exp_device_attr dattr;
+    int err;
 
-	ctx = calloc(1, sizeof(*ctx));
-	if (!ctx) {
-		err_log("Failed to allocate EC context\n");
-		return NULL;
-	}
+    ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        err_log("Failed to allocate EC context\n");
+        return NULL;
+    }
 
-	ctx->pd = pd;
-	ctx->context = pd->context;
+    ctx->pd = pd;
+    ctx->context = pd->context;
 
-	memset(&dattr, 0, sizeof(dattr));
-	dattr.comp_mask = IBV_EXP_DEVICE_ATTR_EXP_CAP_FLAGS | IBV_EXP_DEVICE_ATTR_EC_CAPS;
-	err = ibv_exp_query_device(ctx->context, &dattr);
-	if (err) {
-		err_log("Couldn't query device for EC offload caps.\n");
-		goto free_ctx;
-	}
+    memset(&dattr, 0, sizeof(dattr));
+    dattr.comp_mask = IBV_EXP_DEVICE_ATTR_EXP_CAP_FLAGS | IBV_EXP_DEVICE_ATTR_EC_CAPS;
+    err = ibv_exp_query_device(ctx->context, &dattr);
+    if (err) {
+        err_log("Couldn't query device for EC offload caps.\n");
+        goto free_ctx;
+    }
 
-	if (!(dattr.exp_device_cap_flags & IBV_EXP_DEVICE_EC_OFFLOAD)) {
-		err_log("EC offload not supported by driver.\n");
-		goto free_ctx;
-	}
+    if (!(dattr.exp_device_cap_flags & IBV_EXP_DEVICE_EC_OFFLOAD)) {
+        err_log("EC offload not supported by driver.\n");
+        goto free_ctx;
+    }
 
-	info_log("EC offload supported by driver.\n");
-	info_log("max_ec_calc_inflight_calcs %d\n", dattr.ec_caps.max_ec_calc_inflight_calcs);
-	info_log("max_data_vector_count %d\n", dattr.ec_caps.max_ec_data_vector_count);
+    info_log("EC offload supported by driver.\n");
+    info_log("max_ec_calc_inflight_calcs %d\n", dattr.ec_caps.max_ec_calc_inflight_calcs);
+    info_log("max_data_vector_count %d\n", dattr.ec_caps.max_ec_data_vector_count);
 
-	ctx->attr.comp_mask = IBV_EXP_EC_CALC_ATTR_MAX_INFLIGHT |
-			IBV_EXP_EC_CALC_ATTR_K |
-			IBV_EXP_EC_CALC_ATTR_M |
-			IBV_EXP_EC_CALC_ATTR_W |
-			IBV_EXP_EC_CALC_ATTR_MAX_DATA_SGE |
-			IBV_EXP_EC_CALC_ATTR_MAX_CODE_SGE |
-			IBV_EXP_EC_CALC_ATTR_ENCODE_MAT |
-			IBV_EXP_EC_CALC_ATTR_AFFINITY |
-			IBV_EXP_EC_CALC_ATTR_POLLING;
-	ctx->attr.max_inflight_calcs = max_inflight_calcs;
-	ctx->attr.k = k;
-	ctx->attr.m = m; 
-	ctx->attr.w = w;
-	ctx->attr.max_data_sge = k;
-	ctx->attr.max_code_sge = m;
-	ctx->attr.affinity_hint = 0;
-	/* each time we deal with a data frame
-	 * we split it into several data blocks
-	 * here we decide the block size
-	 */
-	ctx->block_size = align_any((frame_size + ctx->attr.k - 1) / ctx->attr.k, 64);
+    ctx->attr.comp_mask = IBV_EXP_EC_CALC_ATTR_MAX_INFLIGHT |
+        IBV_EXP_EC_CALC_ATTR_K |
+        IBV_EXP_EC_CALC_ATTR_M |
+        IBV_EXP_EC_CALC_ATTR_W |
+        IBV_EXP_EC_CALC_ATTR_MAX_DATA_SGE |
+        IBV_EXP_EC_CALC_ATTR_MAX_CODE_SGE |
+        IBV_EXP_EC_CALC_ATTR_ENCODE_MAT |
+        IBV_EXP_EC_CALC_ATTR_AFFINITY |
+        IBV_EXP_EC_CALC_ATTR_POLLING;
+    ctx->attr.max_inflight_calcs = max_inflight_calcs;
+    ctx->attr.k = k;
+    ctx->attr.m = m; 
+    ctx->attr.w = w;
+    ctx->attr.max_data_sge = k;
+    ctx->attr.max_code_sge = m;
+    ctx->attr.affinity_hint = 0;
+    /* each time we deal with a data frame
+     * we split it into several data blocks
+     * here we decide the block size
+     */
+    ctx->block_size = align_any((frame_size + ctx->attr.k - 1) / ctx->attr.k, 64);
 
-	err = alloc_ec_mrs(ctx);
-	if (err)
-		goto free_ctx;
+    err = alloc_ec_mrs(ctx);
+    if (err)
+        goto free_ctx;
 
-	err = alloc_encode_matrix(ctx);
-	if (err)
-		goto free_mrs;
+    err = alloc_encode_matrix(ctx);
+    if (err)
+        goto free_mrs;
 
-	ctx->attr.encode_matrix = ctx->en_mat;
+    ctx->attr.encode_matrix = ctx->en_mat;
 
-	if (failed_blocks) {
-		if (extract_erasures(failed_blocks, ctx))
-			goto free_mrs;
+    if (failed_blocks) {
+        if (extract_erasures(failed_blocks, ctx))
+            goto free_mrs;
 
-		err = alloc_decode_matrix(ctx);
-		if (err)
-			goto clean_encode_mat;
-	}
-	/* allocate an erasure coding calculation offload context
-	 * each offload job needs a seperate offload context?
-	 */
-	ctx->calc = ibv_exp_alloc_ec_calc(ctx->pd, &ctx->attr);
-	if (!ctx->calc) {
-		err_log("Failed to allocate EC calc\n");
-		goto clean_decode_mat;
-	}
+        err = alloc_decode_matrix(ctx);
+        if (err)
+            goto clean_encode_mat;
+    }
+    /* allocate an erasure coding calculation offload context
+     * each offload job needs a seperate offload context?
+     */
+    ctx->calc = ibv_exp_alloc_ec_calc(ctx->pd, &ctx->attr);
+    if (!ctx->calc) {
+        err_log("Failed to allocate EC calc\n");
+        goto clean_decode_mat;
+    }
 
-	return ctx;
+    return ctx;
 
 clean_decode_mat:
-	free_decode_matrix(ctx);
+    free_decode_matrix(ctx);
 clean_encode_mat:
-	free_encode_matrix(ctx);
+    free_encode_matrix(ctx);
 free_mrs:
-	free_ec_mrs(ctx);
+    free_ec_mrs(ctx);
 free_ctx:
-	free(ctx);
+    free(ctx);
 
-	return NULL;
+    return NULL;
 }
 
 void free_ec_ctx(struct ec_context *ctx) {

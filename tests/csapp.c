@@ -678,7 +678,7 @@ static ssize_t rio_read(rio_t *rp, char *usrbuf, size_t n)
 
     /* Copy min(n, rp->rio_cnt) bytes from internal buf to user buf */
     cnt = n;          
-    if (rp->rio_cnt < n)   
+    if ((size_t)rp->rio_cnt < n)   
         cnt = rp->rio_cnt;
     memcpy(usrbuf, rp->rio_bufptr, cnt);
     rp->rio_bufptr += cnt;
@@ -734,7 +734,7 @@ ssize_t rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen)
     int n, rc;
     char c, *bufp = (char *)usrbuf;
 
-    for (n = 1; n < maxlen; n++) { 
+    for (n = 1; (size_t)n < maxlen; n++) { 
 	if ((rc = rio_read(rp, &c, 1)) == 1) {
 	    *bufp++ = c;
 	    if (c == '\n')
@@ -766,8 +766,8 @@ ssize_t Rio_readn(int fd, void *ptr, size_t nbytes)
 
 void Rio_writen(int fd, void *usrbuf, size_t n) 
 {
-    if (rio_writen(fd, usrbuf, n) != n)
-	unix_error("Rio_writen error");
+    if ((size_t)rio_writen(fd, usrbuf, n) != n)
+        unix_error("Rio_writen error");
 }
 
 void Rio_readinitb(rio_t *rp, int fd)
@@ -780,7 +780,7 @@ ssize_t Rio_readnb(rio_t *rp, void *usrbuf, size_t n)
     ssize_t rc;
 
     if ((rc = rio_readnb(rp, usrbuf, n)) < 0)
-	unix_error("Rio_readnb error");
+        unix_error("Rio_readnb error");
     return rc;
 }
 
@@ -789,7 +789,7 @@ ssize_t Rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen)
     ssize_t rc;
 
     if ((rc = rio_readlineb(rp, usrbuf, maxlen)) < 0)
-	unix_error("Rio_readlineb error");
+        unix_error("Rio_readlineb error");
     return rc;
 } 
 
@@ -810,20 +810,20 @@ int open_clientfd(char *hostname, int port)
     struct sockaddr_in serveraddr;
 
     if ((clientfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-	return -1; /* check errno for cause of error */
+        return -1; /* check errno for cause of error */
 
     /* Fill in the server's IP address and port */
     if ((hp = gethostbyname(hostname)) == NULL)
-	return -2; /* check h_errno for cause of error */
+        return -2; /* check h_errno for cause of error */
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
     bcopy((char *)hp->h_addr_list[0], 
-	  (char *)&serveraddr.sin_addr.s_addr, hp->h_length);
+            (char *)&serveraddr.sin_addr.s_addr, hp->h_length);
     serveraddr.sin_port = htons(port);
 
     /* Establish a connection with the server */
     if (connect(clientfd, (SA *) &serveraddr, sizeof(serveraddr)) < 0)
-	return -1;
+        return -1;
     return clientfd;
 }
 /* $end open_clientfd */
